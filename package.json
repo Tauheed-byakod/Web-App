@@ -1,0 +1,17 @@
+{
+  "name": "civicgaps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A civic issue reporting and public accountability demo",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
+    "seed": "npm --prefix server run seed",
+    "dev": "concurrently -k -n api,web -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
