@@ -3,10 +3,11 @@ import http from 'node:http';
 import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
 import { app } from './app.js';
+import { clientOrigins } from './clientOrigins.js';
 import { db } from './db/index.js';
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' } });
+const io = new Server(server, { cors: { origin: clientOrigins } });
 io.use((socket,next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('Authentication required'));
