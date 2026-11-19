@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './config.js';
 import http from 'node:http';
 import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';

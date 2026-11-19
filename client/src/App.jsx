@@ -285,6 +285,7 @@ function ReportPage() {
   const [form,setForm]=useState({title:'',description:'',category:'Pothole',latitude:12.9716,longitude:77.5946});
   const [photo,setPhoto]=useState(null),[preview,setPreview]=useState('');
   const [nearby,setNearby]=useState([]),[submitting,setSubmitting]=useState(false),[error,setError]=useState('');
+  const [analysis,setAnalysis]=useState(null),[analyzing,setAnalyzing]=useState(false);
   useEffect(()=>{api('/meta').then(setMeta).catch(e=>setError(e.message));},[]);
   useEffect(()=>{
     let active=true;
@@ -297,6 +298,19 @@ function ReportPage() {
     if(!navigator.geolocation){notify('This browser does not support location. Click the map to place your pin.','error');return;}
     navigator.geolocation.getCurrentPosition(position=>pickLocation([position.coords.latitude,position.coords.longitude]),
       ()=>notify('Location access was denied. Click the map to place your pin.','error'),{enableHighAccuracy:true,timeout:10000});
+  };
+  const analyze=async()=>{
+    setError('');
+    const body=new FormData();
+    body.append('description',form.description);
+    if(photo)body.append('photo',photo);
+    setAnalyzing(true);
+    try{
+      const result=await api('/issues/analyze',{method:'POST',body});
+      setAnalysis(result.analysis);
+      setForm(current=>({...current,title:result.analysis.title,description:result.analysis.description,category:result.analysis.category}));
+    }catch(e){setError(e.message);}
+    finally{setAnalyzing(false);}
   };
   const submit=async event=>{
     event.preventDefault();setError('');
@@ -313,11 +327,23 @@ function ReportPage() {
     <form onSubmit={submit} className="grid items-start gap-5 lg:grid-cols-[1.05fr_.95fr]">
       <Card className="p-5 sm:p-7">
         {error&&<div className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-        <Field label="Short, specific title"><input className="field-control" required minLength="5" maxLength="120" value={form.title} onChange={event=>setForm({...form,title:event.target.value})} placeholder="e.g. Deep pothole beside Central Ward bus stop"/></Field>
-        <Field label="Issue category"><select className="field-control" value={form.category} onChange={event=>setForm({...form,category:event.target.value})}>{categories.map(category=><option key={category}>{category}</option>)}</select></Field>
-        <Field label="What is happening?"><textarea className="field-control min-h-32 resize-y" required minLength="15" maxLength="2000" value={form.description} onChange={event=>setForm({...form,description:event.target.value})} placeholder="Describe what you see, who is affected, and any useful nearby landmark."/></Field>
-        <Field label="Add a photo (optional)"><input className="field-control file:mr-3 file:rounded-lg file:border-0 file:bg-teal-50 file:px-3 file:py-2 file:text-xs file:font-bold file:text-teal-800" type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>{const file=event.target.files?.[0];setPhoto(file||null);setPreview(file?URL.createObjectURL(file):'');}}/>{preview&&<img src={preview} alt="Preview of the selected issue" className="mt-3 max-h-48 rounded-xl object-cover"/>}</Field>
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-500">Posting earns <b className="text-teal-700">10 citizen points</b>.</p><Button type="submit" disabled={submitting}>{submitting?<LoaderCircle className="animate-spin" size={16}/>:<Send size={15}/>} Submit report</Button></div>
+        <Field label="Short, specific title"><input className="field-control" required minLength="5" maxLength="120" disabled={analyzing} value={form.title} onChange={event=>setForm({...form,title:event.target.value})} placeholder="e.g. Deep pothole beside Central Ward bus stop"/></Field>
+        <Field label="Issue category"><select className="field-control" disabled={analyzing} value={form.category} onChange={event=>setForm({...form,category:event.target.value})}>{categories.map(category=><option key={category}>{category}</option>)}</select></Field>
+        <Field label="What is happening?"><textarea className="field-control min-h-32 resize-y" required minLength="15" maxLength="2000" disabled={analyzing} value={form.description} onChange={event=>setForm({...form,description:event.target.value})} placeholder="Describe what you see, who is affected, and any useful nearby landmark."/></Field>
+        <Field label="Add a photo (optional)"><input className="field-control file:mr-3 file:rounded-lg file:border-0 file:bg-teal-50 file:px-3 file:py-2 file:text-xs file:font-bold file:text-teal-800" type="file" accept="image/png,image/jpeg,image/webp" disabled={analyzing} onChange={event=>{const file=event.target.files?.[0];setPhoto(file||null);setPreview(file?URL.createObjectURL(file):'');setAnalysis(null);}}/>{preview&&<img src={preview} alt="Preview of the selected issue" className="mt-3 max-h-48 rounded-xl object-cover"/>}</Field>
+        <div className="mb-5">
+          <Button type="button" variant="secondary" onClick={analyze} disabled={analyzing||(!form.description.trim()&&!photo)}>
+            {analyzing?<LoaderCircle className="animate-spin" size={16}/>:<Sparkles size={15}/>} {analyzing?'Analyzing issue…':'AI Analyse Issue'}
+          </Button>
+          {analyzing&&<p role="status" className="mt-2 text-xs text-slate-500">Checking the description and photo…</p>}
+        </div>
+        {analysis&&<div className="mb-5 rounded-xl border border-teal-200 bg-teal-50/70 p-4 text-sm dark:border-teal-900/60 dark:bg-teal-950/20">
+          <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-extrabold text-teal-950 dark:text-teal-100">Issue analysis</h3><Badge tone={analysis.analysisMode==='gemini'?'teal':'neutral'}>{analysis.analysisMode==='gemini'?'Gemini AI':'Rule-based'}</Badge></div>
+          <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2"><div><dt className="font-bold text-slate-500">Detected category</dt><dd className="mt-0.5 font-semibold">{analysis.category}</dd></div><div><dt className="font-bold text-slate-500">Severity</dt><dd className="mt-0.5 font-semibold">{analysis.severity}</dd></div><div><dt className="font-bold text-slate-500">Suggested department</dt><dd className="mt-0.5 font-semibold">{analysis.suggestedDepartment||'Not available in the department catalog'}</dd></div><div><dt className="font-bold text-slate-500">Severity reason</dt><dd className="mt-0.5">{analysis.severityExplanation}</dd></div></dl>
+          <p className="mt-3 text-xs font-bold text-slate-600 dark:text-slate-300">Suggested complaint (editable in the fields above)</p><p className="mt-1 whitespace-pre-line text-xs leading-5">{analysis.description}</p>
+          {analysis.warning&&<p className="mt-3 rounded-lg bg-amber-100/70 p-2 text-xs leading-5 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">{analysis.warning}</p>}
+        </div>}
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-500">Posting earns <b className="text-teal-700">10 citizen points</b>.</p><Button type="submit" disabled={submitting||analyzing}>{submitting?<LoaderCircle className="animate-spin" size={16}/>:<Send size={15}/>} Submit report</Button></div>
       </Card>
       <div className="space-y-4">
         <Card className="overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-2 p-4"><div><h2 className="font-extrabold">Mark the location</h2><p className="mt-1 text-xs text-slate-500">Click the map or use your current location.</p></div><Button variant="secondary" className="px-3 py-2 text-xs" type="button" onClick={locate}><MapPin size={14}/> Use my location</Button></div><div className="h-[340px]"><LocationMap value={[form.latitude,form.longitude]} onPick={pickLocation} height="100%"/></div><div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-xs dark:border-slate-800"><span className="text-slate-500">{form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}</span><Badge tone="teal">{meta.wards?.length?`${closestWard(meta.wards,form.latitude,form.longitude)} · auto-assigned`:'Ward assigned on submit'}</Badge></div></Card>

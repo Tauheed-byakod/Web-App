@@ -1,5 +1,20 @@
 import { db } from '../db/index.js';
 
+export const CIVIC_CATEGORIES = ['Pothole', 'Streetlight', 'Water Leak', 'Garbage', 'Drainage', 'Other'];
+const departmentByCategory = {
+  Pothole: 'Roads',
+  Streetlight: 'Electricity',
+  'Water Leak': 'Water Supply',
+  Garbage: 'Sanitation',
+  Drainage: 'Drainage',
+  Other: 'Roads'
+};
+
+export function departmentForCategory(category) {
+  const departmentName = departmentByCategory[category];
+  return departmentName ? db.prepare('SELECT id,name FROM departments WHERE name=?').get(departmentName) : null;
+}
+
 export const SLA_HOURS = {
   Pothole: 72,
   Streetlight: 120,

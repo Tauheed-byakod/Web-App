@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "seed": "node src/db/seed.js"
+    "seed": "node src/db/seed.js",
+    "test": "node --test"
   },
   "dependencies": {
+    "@google/genai": "^3.6.1",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.8.1",
     "civicgaps": "file:..",

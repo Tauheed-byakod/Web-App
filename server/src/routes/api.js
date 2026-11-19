@@ -8,10 +8,11 @@ import { z } from 'zod';
 import { db, uploadDir } from '../db/index.js';
 import { allow, authenticate, optionalAuthenticate, signToken } from '../middleware/auth.js';
 import { fail } from '../middleware/errors.js';
-import { award, hoursBetween, issueMetrics, nearestWard, SLA_HOURS, statusNotification } from '../services/civic.js';
+import { award, CIVIC_CATEGORIES, departmentForCategory, hoursBetween, issueMetrics, nearestWard, SLA_HOURS, statusNotification } from '../services/civic.js';
+import { analyzeCivicIssue } from '../services/aiAnalysis.js';
 
 export const router = Router();
-const categories = ['Pothole', 'Streetlight', 'Water Leak', 'Garbage', 'Drainage', 'Other'];
+const categories = CIVIC_CATEGORIES;
 const statuses = ['Reported', 'Acknowledged', 'In Progress', 'Resolved', 'Rejected'];
 const transitions = {
   Reported: ['Acknowledged', 'Rejected'],
@@ -23,15 +24,22 @@ const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => cb(null, `${randomUUID()}${path.extname(file.originalname).toLowerCase()}`)
 });
+const acceptedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+const imageFileFilter = (_req, file, cb) => {
+  if (!acceptedImageTypes.includes(file.mimetype)) {
+    return cb(fail(400, 'INVALID_FILE', 'Upload a JPEG, PNG, WebP or SVG image.'));
+  }
+  cb(null, true);
+};
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (!['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'].includes(file.mimetype)) {
-      return cb(fail(400, 'INVALID_FILE', 'Upload a JPEG, PNG, WebP or SVG image.'));
-    }
-    cb(null, true);
-  }
+  fileFilter: imageFileFilter
+});
+const analysisUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: imageFileFilter
 });
 const parse = (schema, value) => schema.parse(value);
 const userById = (id) => db.prepare('SELECT id,name,email,role,department_id,created_at FROM users WHERE id=?').get(id);
@@ -120,6 +128,24 @@ router.get('/issues/nearby', (req, res) => {
   res.json({ issues: nearby });
 });
 
+router.post('/issues/analyze', authenticate, allow('citizen'), analysisUpload.single('photo'), async (req, res, next) => {
+  try {
+    const input = parse(z.object({
+      description: z.string().trim().max(2000).optional().default('')
+    }), req.body);
+    if (!input.description && !req.file) {
+      throw fail(400, 'ANALYSIS_INPUT_REQUIRED', 'Add a description or issue photo to analyze.');
+    }
+    const analysis = await analyzeCivicIssue({
+      description: input.description,
+      image: req.file ? { buffer: req.file.buffer, mimeType: req.file.mimetype } : null
+    });
+    res.json({ analysis });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post('/issues', authenticate, allow('citizen'), upload.single('photo'), (req, res) => {
   const input = parse(z.object({
     title: z.string().trim().min(5).max(120),
@@ -129,8 +155,7 @@ router.post('/issues', authenticate, allow('citizen'), upload.single('photo'), (
     longitude: z.coerce.number().min(-180).max(180)
   }), req.body);
   const ward = nearestWard(input.latitude, input.longitude);
-  const departmentMap = { Pothole: 'Roads', Streetlight: 'Electricity', 'Water Leak': 'Water Supply', Garbage: 'Sanitation', Drainage: 'Drainage', Other: 'Roads' };
-  const department = db.prepare('SELECT id FROM departments WHERE name=?').get(departmentMap[input.category]);
+  const department = departmentForCategory(input.category);
   const tx = db.transaction(() => {
     const created = db.prepare(`INSERT INTO issues (reporter_id,title,description,category,photo_path,latitude,longitude,department_id,ward_id)
       VALUES (?,?,?,?,?,?,?,?,?)`).run(req.auth.id, input.title, input.description, input.category,
